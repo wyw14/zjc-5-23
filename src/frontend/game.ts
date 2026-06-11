@@ -13,6 +13,7 @@ const hpBar = document.getElementById('hp-bar')!;
 const hpText = document.getElementById('hp-text')!;
 const scoreText = document.getElementById('score-text')!;
 const progressText = document.getElementById('progress-text')!;
+const pressureBar = document.getElementById('pressure-bar')!;
 const overlay = document.getElementById('overlay')!;
 const overlayTitle = document.getElementById('overlay-title')!;
 const overlayMsg = document.getElementById('overlay-msg')!;
@@ -22,8 +23,16 @@ const MAX_HP = 5;
 let hp = MAX_HP;
 let score = 0;
 let currentIndex = 0;
+let displayedIndex = 0;
 let questions: Question[] = [];
 let isLocked = false;
+
+let monsterDistance: number = 100;
+const DISTANCE_ATTACK = 0;
+const DISTANCE_FAR = 100;
+const DISTANCE_APPROACH_SPEED = 0.065;
+const DISTANCE_KNOCKBACK = 75;
+const DISTANCE_WRONG_KNOCKBACK = 30;
 
 interface Particle { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; color: string; size: number; }
 let particles: Particle[] = [];
@@ -31,8 +40,23 @@ let particles: Particle[] = [];
 interface WarriorState { x: number; y: number; swinging: boolean; swingTimer: number; facingLeft: boolean; }
 let warrior: WarriorState;
 
-interface MonsterState { x: number; y: number; targetX: number; alive: boolean; dying: boolean; deathTimer: number; hitFlash: number; }
+interface MonsterState { x: number; y: number; alive: boolean; dying: boolean; deathTimer: number; hitFlash: number; }
 let monster: MonsterState;
+
+function distanceToMonsterX(d: number): number {
+  const w = canvas.clientWidth;
+  const minX = warrior.x + 50;
+  const maxX = w * 0.9;
+  return minX + (maxX - minX) * (d / 100);
+}
+
+function monsterXToDistance(x: number): number {
+  const w = canvas.clientWidth;
+  const minX = warrior.x + 50;
+  const maxX = w * 0.9;
+  const clamped = Math.max(minX, Math.min(maxX, x));
+  return ((clamped - minX) / (maxX - minX)) * 100;
+}
 
 let damageFlash = 0;
 let animFrame = 0;
@@ -50,7 +74,7 @@ function initPositions() {
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
   warrior = { x: w * 0.2, y: h * 0.55, swinging: false, swingTimer: 0, facingLeft: false };
-  monster = { x: w * 0.85, y: h * 0.55, targetX: w * 0.65, alive: false, dying: false, deathTimer: 0, hitFlash: 0 };
+  monster = { x: distanceToMonsterX(monsterDistance), y: h * 0.55, alive: false, dying: false, deathTimer: 0, hitFlash: 0 };
 }
 
 initPositions();
@@ -214,8 +238,8 @@ function drawMonster() {
   ctx.fillRect(-14, 14, 10, 12);
   ctx.fillRect(4, 14, 10, 12);
 
-  if (!dying && monster.alive && currentIndex < questions.length) {
-    const q = questions[currentIndex];
+  if (!dying && monster.alive && displayedIndex < questions.length) {
+    const q = questions[displayedIndex];
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
     ctx.font = 'bold 14px "Segoe UI", "PingFang SC", sans-serif';
     const tw = ctx.measureText(q.expression).width;
@@ -274,9 +298,12 @@ function drawDamageFlash() {
 function update() {
   animFrame++;
 
-  if (monster.alive && !monster.dying) {
-    if (monster.x > monster.targetX) {
-      monster.x -= 0.3;
+  if (monster.alive && !monster.dying && !isLocked) {
+    monsterDistance = Math.max(DISTANCE_ATTACK, monsterDistance - DISTANCE_APPROACH_SPEED);
+    monster.x = distanceToMonsterX(monsterDistance);
+
+    if (monsterDistance <= DISTANCE_ATTACK) {
+      onMonsterReachWarrior();
     }
   }
 
@@ -301,6 +328,41 @@ function update() {
   updateParticles();
 }
 
+function onMonsterReachWarrior() {
+  if (isLocked) return;
+  isLocked = true;
+
+  hp--;
+  damageFlash = 15;
+  spawnParticles(warrior.x, warrior.y - 20, 15, '#e74c3c');
+  warrior.facingLeft = true;
+  setTimeout(() => { warrior.facingLeft = false; }, 300);
+
+  currentIndex++;
+  updateHUD();
+
+  if (hp <= 0) {
+    setTimeout(() => {
+      endGame();
+    }, 800);
+    return;
+  }
+
+  optionBtns.forEach((btn, i) => {
+    btn.disabled = true;
+    if (displayedIndex < questions.length) {
+      const q = questions[displayedIndex];
+      if (q.options[i] === q.correctAnswer) {
+        btn.classList.add('correct');
+      }
+    }
+  });
+
+  setTimeout(() => {
+    showQuestion();
+  }, 1000);
+}
+
 function draw() {
   ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
   drawGround();
@@ -313,6 +375,7 @@ function draw() {
 function gameLoop() {
   update();
   draw();
+  updateHUD();
   requestAnimationFrame(gameLoop);
 }
 
@@ -322,6 +385,16 @@ function updateHUD() {
   hpText.textContent = `❤️ ${hp} / ${MAX_HP}`;
   scoreText.textContent = `🏆 ${score}`;
   progressText.textContent = `${currentIndex} / ${questions.length}`;
+
+  const pressurePct = 100 - monsterDistance;
+  pressureBar.style.width = pressurePct + '%';
+  if (pressurePct < 40) {
+    pressureBar.style.background = 'linear-gradient(90deg, #27ae60, #2ecc71)';
+  } else if (pressurePct < 75) {
+    pressureBar.style.background = 'linear-gradient(90deg, #f39c12, #f5c542)';
+  } else {
+    pressureBar.style.background = 'linear-gradient(90deg, #e67e22, #e74c3c)';
+  }
 }
 
 function showQuestion() {
@@ -330,7 +403,8 @@ function showQuestion() {
     return;
   }
 
-  const q = questions[currentIndex];
+  displayedIndex = currentIndex;
+  const q = questions[displayedIndex];
   questionText.textContent = q.expression + ' = ?';
 
   optionBtns.forEach((btn, i) => {
@@ -339,8 +413,8 @@ function showQuestion() {
     btn.disabled = false;
   });
 
-  monster.x = canvas.clientWidth * 0.85;
-  monster.targetX = canvas.clientWidth * 0.65;
+  monsterDistance = DISTANCE_FAR;
+  monster.x = distanceToMonsterX(monsterDistance);
   monster.alive = true;
   monster.dying = false;
   monster.deathTimer = 0;
@@ -360,8 +434,10 @@ async function startGame() {
   hp = MAX_HP;
   score = 0;
   currentIndex = 0;
+  displayedIndex = 0;
   particles = [];
   damageFlash = 0;
+  monsterDistance = DISTANCE_FAR;
   initPositions();
   updateHUD();
 
@@ -413,18 +489,18 @@ function handleAnswer(idx: number) {
     warrior.swinging = true;
     warrior.swingTimer = 0;
     monster.hitFlash = 8;
+    spawnParticles(monster.x, monster.y - 10, 15, '#f5c542');
 
-    setTimeout(() => {
-      monster.alive = false;
-      monster.dying = true;
-      monster.deathTimer = 0;
-      spawnParticles(monster.x, monster.y - 10, 25, '#e74c3c');
-      spawnParticles(monster.x, monster.y - 10, 10, '#f5c542');
-    }, 200);
+    monsterDistance = DISTANCE_KNOCKBACK;
+    monster.x = distanceToMonsterX(monsterDistance);
   } else {
     hp--;
     damageFlash = 15;
     spawnParticles(warrior.x, warrior.y - 20, 15, '#e74c3c');
+
+    monsterDistance = DISTANCE_WRONG_KNOCKBACK;
+    monster.x = distanceToMonsterX(monsterDistance);
+
     if (hp <= 0) {
       setTimeout(() => {
         isLocked = true;
@@ -439,7 +515,7 @@ function handleAnswer(idx: number) {
 
   setTimeout(() => {
     showQuestion();
-  }, correct ? 800 : 1000);
+  }, correct ? 600 : 1000);
 }
 
 optionBtns.forEach((btn, i) => {

@@ -53,6 +53,38 @@ html, body {
 
 #score-text { margin-left: auto; }
 
+#pressure-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px 10px;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 10;
+}
+
+#pressure-label {
+  font-size: 13px;
+  white-space: nowrap;
+  color: #f5c542;
+  font-weight: 600;
+}
+
+#pressure-bar-wrap {
+  flex: 1;
+  height: 10px;
+  background: #333;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+#pressure-bar {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #27ae60, #f5c542, #e74c3c);
+  transition: width 0.08s linear, background 0.3s ease;
+  border-radius: 5px;
+}
+
 #game-canvas {
   flex: 1;
   width: 100%;
